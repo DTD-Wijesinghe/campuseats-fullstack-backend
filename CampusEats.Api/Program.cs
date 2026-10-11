@@ -17,7 +17,7 @@ var allowedFrontendOrigins = new[]
     "https://campuseats-fullstack-frontend.vercel.app",
     "https://campuseats-frontend-git-main-daniduwijesinghes-projects.vercel.app",
     "http://localhost:5173"
-}.Where(origin => !string.IsNullOrWhiteSpace(origin)).ToArray();
+}.Where(origin => !string.IsNullOrWhiteSpace(origin)).Select(origin => origin!).ToArray();
 
 builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
     policy.WithOrigins(allowedFrontendOrigins)
