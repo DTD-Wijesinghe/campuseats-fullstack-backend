@@ -35,6 +35,10 @@ using (var scope = app.Services.CreateScope())
             db.MenuItems.AddRange(MenuItem.Seed());
         db.SaveChanges();
     }
+    else
+    {
+        db.Database.Migrate();
+    }
 }
 app.UseCors("Frontend");
 app.MapControllers();
