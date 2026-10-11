@@ -10,8 +10,17 @@ if (string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddDbContext<MenuDbContext>(options => options.UseInMemoryDatabase("CampusEatsDev"));
 else
     builder.Services.AddDbContext<MenuDbContext>(options => options.UseNpgsql(connectionString));
+var configuredFrontendOrigin = builder.Configuration["FrontendOrigin"];
+var allowedFrontendOrigins = new[]
+{
+    configuredFrontendOrigin,
+    "https://campuseats-fullstack-frontend.vercel.app",
+    "https://campuseats-frontend-git-main-daniduwijesinghes-projects.vercel.app",
+    "http://localhost:5173"
+}.Where(origin => !string.IsNullOrWhiteSpace(origin)).ToArray();
+
 builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
-    policy.WithOrigins(builder.Configuration["FrontendOrigin"] ?? "http://localhost:5173")
+    policy.WithOrigins(allowedFrontendOrigins)
         .AllowAnyHeader()
         .AllowAnyMethod()));
 
