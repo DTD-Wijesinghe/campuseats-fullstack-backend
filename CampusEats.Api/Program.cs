@@ -1,15 +1,32 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+var connectionString = builder.Configuration.GetConnectionString("Default");
+if (string.IsNullOrWhiteSpace(connectionString))
+    builder.Services.AddDbContext<MenuDbContext>(options => options.UseInMemoryDatabase("CampusEatsDev"));
+else
+    builder.Services.AddDbContext<MenuDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
     policy.WithOrigins(builder.Configuration["FrontendOrigin"] ?? "http://localhost:5173")
         .AllowAnyHeader()
         .AllowAnyMethod()));
 
 var app = builder.Build();
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<MenuDbContext>();
+    if (string.IsNullOrWhiteSpace(connectionString))
+    {
+        db.Database.EnsureCreated();
+        if (!db.MenuItems.Any())
+            db.MenuItems.AddRange(MenuItem.Seed());
+        db.SaveChanges();
+    }
+}
 app.UseCors("Frontend");
 app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
@@ -17,50 +34,77 @@ app.Run();
 
 public partial class Program { }
 
-public record MenuItem(int Id, string Name, decimal Price, string Category, bool Available);
+public class MenuItem
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public decimal Price { get; set; }
+    public string Category { get; set; } = "";
+    public bool Available { get; set; }
+
+    public static MenuItem[] Seed() => new[]
+    {
+        new MenuItem { Id = 1, Name = "Chicken Rice", Price = 850m, Category = "Main", Available = true },
+        new MenuItem { Id = 2, Name = "Vegetable Kottu", Price = 700m, Category = "Main", Available = true },
+        new MenuItem { Id = 3, Name = "Fresh Lime Juice", Price = 250m, Category = "Drinks", Available = true }
+    };
+}
+
+public sealed class MenuDbContext(DbContextOptions<MenuDbContext> options) : DbContext(options)
+{
+    public DbSet<MenuItem> MenuItems => Set<MenuItem>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MenuItem>().HasData(MenuItem.Seed());
+    }
+}
 
 [ApiController]
 [Route("api/menu")]
 public sealed class MenuController : ControllerBase
 {
-    private static readonly List<MenuItem> Items = new()
-    {
-        new(1, "Chicken Rice", 850m, "Main", true),
-        new(2, "Vegetable Kottu", 700m, "Main", true),
-        new(3, "Fresh Lime Juice", 250m, "Drinks", true)
-    };
+    private readonly MenuDbContext _db;
+
+    public MenuController(MenuDbContext db) => _db = db;
 
     [HttpGet]
-    public ActionResult<IEnumerable<MenuItem>> GetAll() => Ok(Items);
+    public async Task<ActionResult<IEnumerable<MenuItem>>> GetAll() => Ok(await _db.MenuItems.AsNoTracking().ToListAsync());
 
     [HttpGet("{id:int}")]
-    public ActionResult<MenuItem> GetById(int id)
+    public async Task<ActionResult<MenuItem>> GetById(int id)
     {
-        var item = Items.FirstOrDefault(x => x.Id == id);
+        var item = await _db.MenuItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
         return item is null ? NotFound() : Ok(item);
     }
 
     [HttpPost]
-    public ActionResult<MenuItem> Create(MenuItem item)
+    public async Task<ActionResult<MenuItem>> Create(MenuItem item)
     {
-        var created = item with { Id = Items.Count == 0 ? 1 : Items.Max(x => x.Id) + 1 };
-        Items.Add(created);
+        item.Id = 0;
+        _db.MenuItems.Add(item);
+        await _db.SaveChangesAsync();
+        var created = item;
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
     [HttpPut("{id:int}")]
-    public IActionResult Replace(int id, MenuItem item)
+    public async Task<IActionResult> Replace(int id, MenuItem item)
     {
-        var index = Items.FindIndex(x => x.Id == id);
-        if (index < 0) return NotFound();
-        Items[index] = item with { Id = id };
+        var existing = await _db.MenuItems.FindAsync(id);
+        if (existing is null) return NotFound();
+        existing.Name = item.Name; existing.Price = item.Price; existing.Category = item.Category; existing.Available = item.Available;
+        await _db.SaveChangesAsync();
         return NoContent();
     }
 
     [HttpDelete("{id:int}")]
-    public IActionResult Delete(int id)
+    public async Task<IActionResult> Delete(int id)
     {
-        var removed = Items.RemoveAll(x => x.Id == id);
-        return removed == 0 ? NotFound() : NoContent();
+        var existing = await _db.MenuItems.FindAsync(id);
+        if (existing is null) return NotFound();
+        _db.MenuItems.Remove(existing);
+        await _db.SaveChangesAsync();
+        return NoContent();
     }
 }
