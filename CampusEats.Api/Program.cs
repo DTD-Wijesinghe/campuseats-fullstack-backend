@@ -1,11 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-var connectionString = builder.Configuration.GetConnectionString("Default");
+var connectionString = NormalizeConnectionString(builder.Configuration.GetConnectionString("Default"));
 if (string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddDbContext<MenuDbContext>(options => options.UseInMemoryDatabase("CampusEatsDev"));
 else
@@ -46,6 +47,30 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.Run();
 
 public partial class Program { }
+
+static string? NormalizeConnectionString(string? rawConnectionString)
+{
+    if (string.IsNullOrWhiteSpace(rawConnectionString) ||
+        !rawConnectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+        return rawConnectionString;
+
+    var uri = new Uri(rawConnectionString);
+    var credentials = uri.UserInfo.Split(':', 2);
+    if (credentials.Length != 2)
+        return rawConnectionString;
+
+    var connection = new NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port > 0 ? uri.Port : 5432,
+        Database = uri.AbsolutePath.Trim('/'),
+        Username = Uri.UnescapeDataString(credentials[0]),
+        Password = Uri.UnescapeDataString(credentials[1]),
+        SslMode = SslMode.Require
+    };
+
+    return connection.ConnectionString;
+}
 
 public class MenuItem
 {
